@@ -26,45 +26,42 @@ async def fetch_bases():
             resp = await client.post(DARKSTAT_API, json=payload)
             resp.raise_for_status()
             data = resp.json()
-            # On s'assure que data est bien une liste
             return data if isinstance(data, list) else []
         except Exception as e:
-            print(f"API Error: {e}")
+            print(f"CRITICAL API ERROR: {e}")
             return []
 
 @app.get("/api/routes")
-async def get_trade_routes(
-    commodity: Optional[str] = None,
-    min_profit: int = 0,
-    limit: int = 100
-):
+async def get_trade_routes(commodity: Optional[str] = None, min_profit: int = 0, limit: int = 100):
     bases = await fetch_bases()
     if not bases:
-        raise HTTPException(status_code=502, detail="API Darkstat injoignable ou vide")
+        raise HTTPException(status_code=502, detail="API vide")
 
     commodity_map = {}
+    print(f"DEBUG: Processing {len(bases)} bases...")
 
     for base in bases:
-        if not base or not isinstance(base, dict):
+        # Blindage total contre les bases qui ne sont pas des dictionnaires
+        if not isinstance(base, dict):
             continue
             
-        # CORRECTION : On gère le cas où market_goods est None
-        market_goods = base.get("market_goods") or []
-        base_nick = base.get("nickname")
+        # Ligne 70 corrigée avec sécurité supplémentaire
+        market_data = base.get("market_goods")
+        market_goods = market_data if market_data is not None else []
+        
+        base_nick = base.get("nickname") or "unknown"
         
         for good in market_goods:
-            if not good or not isinstance(good, dict):
+            if not isinstance(good, dict):
                 continue
                 
             nick = good.get("nickname")
             if not nick:
                 continue
 
-            # Filtre par texte (commodity)
             if commodity:
                 c_lower = commodity.lower()
-                name_lower = (good.get("name") or "").lower()
-                if c_lower not in nick.lower() and c_lower not in name_lower:
+                if c_lower not in nick.lower() and c_lower not in (good.get("name") or "").lower():
                     continue
 
             if nick not in commodity_map:
@@ -80,7 +77,7 @@ async def get_trade_routes(
                 "faction_name": base.get("faction_name") or "Unknown Faction",
                 "sector_coord": base.get("sector_coord") or "N/A",
                 "price": good.get("price_base_sells_for") or 0,
-                "base_sells": good.get("base_sells") or False,
+                "base_sells": bool(good.get("base_sells")),
                 "volume": good.get("volume") or 1,
             })
 
@@ -88,19 +85,15 @@ async def get_trade_routes(
     for nick, entries in commodity_map.items():
         sellers = [e for e in entries if e["base_sells"]]
         buyers = [e for e in entries if not e["base_sells"]]
-
         for sell_point in sellers:
             for buy_point in buyers:
                 if sell_point["base_nickname"] == buy_point["base_nickname"]:
                     continue
-                
-                profit_per_unit = buy_point["price"] - sell_point["price"]
-                if profit_per_unit <= min_profit:
+                profit = buy_point["price"] - sell_point["price"]
+                if profit <= min_profit:
                     continue
-
+                
                 vol = sell_point["volume"]
-                profit_vol = round(profit_per_unit / vol, 2) if vol > 0 else 0
-
                 routes.append({
                     "commodity_nickname": nick,
                     "commodity_name": sell_point["commodity_name"],
@@ -118,12 +111,13 @@ async def get_trade_routes(
                     "to_faction": buy_point["faction_name"],
                     "to_sector": buy_point["sector_coord"],
                     "sell_price": buy_point["price"],
-                    "profit_per_unit": profit_per_unit,
+                    "profit_per_unit": profit,
                     "volume": vol,
-                    "profit_per_volume": profit_vol,
+                    "profit_per_volume": round(profit / vol, 2) if vol > 0 else 0,
                 })
 
     routes.sort(key=lambda r: r["profit_per_unit"], reverse=True)
+    print(f"DEBUG: Found {len(routes)} routes")
     return routes[:limit]
 
 @app.get("/api/commodities")
@@ -131,13 +125,12 @@ async def get_commodities():
     bases = await fetch_bases()
     seen = {}
     for base in bases:
-        if not base: continue
+        if not isinstance(base, dict): continue
         market_goods = base.get("market_goods") or []
         for good in market_goods:
-            n = good.get("nickname")
-            if n and n not in seen:
+            if isinstance(good, dict) and good.get("nickname"):
+                n = good["nickname"]
                 seen[n] = good.get("name") or n
     return [{"nickname": k, "name": v} for k, v in sorted(seen.items(), key=lambda x: x[1])]
 
-# Servir le dossier frontend
 app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
