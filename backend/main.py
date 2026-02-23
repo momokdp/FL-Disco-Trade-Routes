@@ -3,12 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import httpx
-import asyncio
 from typing import Optional
 from pydantic import BaseModel
 
 app = FastAPI(title="Freelancer Trade Routes")
 
+# Configuration CORS pour permettre au frontend de communiquer avec le backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,11 +17,6 @@ app.add_middleware(
 )
 
 DARKSTAT_API = "https://darkstat.dd84ai.com/api/npc_bases"
-
-class BasesRequest(BaseModel):
-    filter_market_good_category: list[str] = ["commodity"]
-    filter_to_useful: bool = True
-    include_market_goods: bool = True
 
 async def fetch_bases(nicknames: list[str] = None):
     payload = {
@@ -33,18 +28,20 @@ async def fetch_bases(nicknames: list[str] = None):
         payload["filter_nicknames"] = nicknames
 
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(DARKSTAT_API, json=payload)
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp = await client.post(DARKSTAT_API, json=payload)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            print(f"API Error: {e}")
+            return []
 
 @app.get("/api/bases")
 async def get_all_bases():
-    """Fetch all NPC bases with their market goods"""
-    try:
-        data = await fetch_bases()
-        return data
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    data = await fetch_bases()
+    if not data:
+        raise HTTPException(status_code=502, detail="Could not fetch data from Darkstat")
+    return data
 
 @app.get("/api/routes")
 async def get_trade_routes(
@@ -52,51 +49,49 @@ async def get_trade_routes(
     min_profit: int = 0,
     limit: int = 100
 ):
-    """
-    Calculate profitable trade routes.
-    A route is: buy commodity on base A (base_sells=True) → sell on base B (base_sells=False, higher price).
-    Profit = price_base_sells_for(B) - price_base_sells_for(A)
-    """
-    try:
-        bases = await fetch_bases()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    bases = await fetch_bases()
+    if not bases:
+        raise HTTPException(status_code=502, detail="Darkstat API is unreachable")
 
-    # Build index: commodity_nickname -> list of {base, price, sells}
-    commodity_map: dict[str, list[dict]] = {}
+    commodity_map = {}
 
     for base in bases:
         seen = set()
         for good in base.get("market_goods", []):
-            nick = good["nickname"]
-            # deduplicate by nickname (keep highest price entry)
-            key = (base["nickname"], nick)
-            if key in seen:
-                continue
+            nick = good.get("nickname")
+            if not nick: continue
+            
+            # Déduplication
+            key = (base.get("nickname"), nick)
+            if key in seen: continue
             seen.add(key)
 
-            if commodity and commodity.lower() not in nick.lower() and commodity.lower() not in good["name"].lower():
+            # Filtre par nom de marchandise
+            if commodity and commodity.lower() not in nick.lower() and commodity.lower() not in good.get("name", "").lower():
                 continue
 
             if nick not in commodity_map:
                 commodity_map[nick] = []
 
+            # Sécurité sur les prix et volumes (évite les NoneType ou 0)
+            price = good.get("price_base_sells_for", 0)
+            vol = good.get("volume", 1) # Par défaut 1 pour éviter division par zéro
+
             commodity_map[nick].append({
                 "commodity_nickname": nick,
-                "commodity_name": good["name"],
-                "base_nickname": base["nickname"],
-                "base_name": base["name"],
-                "system_name": base["system_name"],
-                "region_name": base["region_name"],
-                "faction_name": base["faction_name"],
-                "sector_coord": base["sector_coord"],
-                "price": good["price_base_sells_for"],
-                "base_sells": good["base_sells"],
-                "volume": good["volume"],
+                "commodity_name": good.get("name", "Unknown"),
+                "base_nickname": base.get("nickname"),
+                "base_name": base.get("name"),
+                "system_name": base.get("system_name"),
+                "region_name": base.get("region_name"),
+                "faction_name": base.get("faction_name"),
+                "sector_coord": base.get("sector_coord"),
+                "price": price,
+                "base_sells": good.get("base_sells", False),
+                "volume": vol,
             })
 
     routes = []
-
     for nick, entries in commodity_map.items():
         sellers = [e for e in entries if e["base_sells"]]
         buyers = [e for e in entries if not e["base_sells"]]
@@ -105,9 +100,14 @@ async def get_trade_routes(
             for buy_point in buyers:
                 if sell_point["base_nickname"] == buy_point["base_nickname"]:
                     continue
+                
                 profit_per_unit = buy_point["price"] - sell_point["price"]
                 if profit_per_unit <= min_profit:
                     continue
+
+                # Calcul sécurisé du profit par volume
+                vol = sell_point["volume"]
+                profit_vol = round(profit_per_unit / vol, 2) if vol > 0 else 0
 
                 routes.append({
                     "commodity_nickname": nick,
@@ -127,8 +127,8 @@ async def get_trade_routes(
                     "to_sector": buy_point["sector_coord"],
                     "sell_price": buy_point["price"],
                     "profit_per_unit": profit_per_unit,
-                    "volume": sell_point["volume"],
-                    "profit_per_volume": round(profit_per_unit / sell_point["volume"], 2) if sell_point["volume"] > 0 else 0,
+                    "volume": vol,
+                    "profit_per_volume": profit_vol,
                 })
 
     routes.sort(key=lambda r: r["profit_per_unit"], reverse=True)
@@ -136,18 +136,15 @@ async def get_trade_routes(
 
 @app.get("/api/commodities")
 async def get_commodities():
-    """Return list of all unique tradeable commodities"""
-    try:
-        bases = await fetch_bases()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
+    bases = await fetch_bases()
     seen = {}
     for base in bases:
         for good in base.get("market_goods", []):
-            if good["nickname"] not in seen:
-                seen[good["nickname"]] = good["name"]
+            n = good.get("nickname")
+            if n and n not in seen:
+                seen[n] = good.get("name", n)
 
     return [{"nickname": k, "name": v} for k, v in sorted(seen.items(), key=lambda x: x[1])]
 
+# Servir le dossier frontend
 app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
