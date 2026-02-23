@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FL Trade Routes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #05080f;
+    --bg2: #090d17;
+    --bg3: #0e1422;
+    --panel: #0a0f1e;
+    --border: #1a2540;
+    --border-bright: #2a4080;
+    --accent: #00c8ff;
+    --accent2: #0077ff;
+    --gold: #f0b429;
+    --green: #00e89a;
+    --red: #ff4757;
+    --text: #c8d8f0;
+    --text-dim: #5a7090;
+    --text-bright: #e8f4ff;
+    --glow: 0 0 20px rgba(0,200,255,0.15);
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-ui: 'Rajdhani', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 15px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* Star field */
+  .stars {
+    position: fixed;
+    inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 15% 10%, rgba(200,220,255,0.6) 0%, transparent 100%),
+      radial-gradient(1px 1px at 42% 30%, rgba(200,220,255,0.4) 0%, transparent 100%),
+      radial-gradient(1px 1px at 70% 15%, rgba(200,220,255,0.5) 0%, transparent 100%),
+      radial-gradient(1px 1px at 88% 45%, rgba(200,220,255,0.3) 0%, transparent 100%),
+      radial-gradient(1px 1px at 25% 65%, rgba(200,220,255,0.4) 0%, transparent 100%),
+      radial-gradient(1px 1px at 60% 80%, rgba(200,220,255,0.3) 0%, transparent 100%),
+      radial-gradient(1px 1px at 5% 85%, rgba(200,220,255,0.5) 0%, transparent 100%),
+      radial-gradient(1px 1px at 95% 92%, rgba(200,220,255,0.4) 0%, transparent 100%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .layout {
+    position: relative;
+    z-index: 1;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 24px 60px;
+  }
+
+  /* HEADER */
+  header {
+    padding: 32px 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+    position: relative;
+  }
+  header::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 220px;
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+  }
+
+  .logo {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .logo-title {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: var(--text-bright);
+    text-transform: uppercase;
+  }
+  .logo-title span { color: var(--accent); }
+  .logo-sub {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 3px;
+  }
+
+  .header-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: all 0.3s;
+  }
+  .status-dot.online { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+  .status-dot.loading { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+  .status-dot.error { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+  /* CONTROLS */
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto auto;
+    gap: 12px;
+    margin-bottom: 24px;
+    align-items: end;
+  }
+
+  .ctrl-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ctrl-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  input, select {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    padding: 10px 14px;
+    border-radius: 4px;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    appearance: none;
+  }
+  input:focus, select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0,200,255,0.1);
+  }
+  input::placeholder { color: var(--text-dim); }
+
+  select option { background: var(--bg2); }
+
+  .btn {
+    padding: 10px 24px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--font-ui);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .btn:hover {
+    background: rgba(0,200,255,0.1);
+    box-shadow: 0 0 16px rgba(0,200,255,0.2);
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn.primary {
+    background: var(--accent2);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .btn.primary:hover {
+    background: var(--accent);
+    box-shadow: 0 0 24px rgba(0,200,255,0.3);
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* STATS BAR */
+  .stats-bar {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 20px;
+    padding: 12px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    flex-wrap: wrap;
+  }
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .stat-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .stat-value {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    color: var(--accent);
+    font-weight: bold;
+  }
+
+  /* TABLE */
+  .table-wrapper {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--panel);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  thead tr {
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border-bright);
+  }
+
+  th {
+    padding: 12px 16px;
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s;
+  }
+  th:hover { color: var(--accent); }
+  th.sorted { color: var(--accent); }
+  th .sort-icon { margin-left: 4px; opacity: 0.5; }
+  th.sorted .sort-icon { opacity: 1; }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+    cursor: pointer;
+  }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(0,200,255,0.04); }
+  tbody tr.expanded { background: rgba(0,200,255,0.06); }
+
+  td {
+    padding: 11px 16px;
+    font-size: 13px;
+  }
+
+  .commodity-name {
+    font-weight: 600;
+    color: var(--text-bright);
+    font-size: 14px;
+  }
+  .commodity-nick {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  .base-name {
+    font-weight: 600;
+    color: var(--text);
+    font-size: 13px;
+  }
+  .base-meta {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  .price {
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .price.buy { color: var(--gold); }
+  .price.sell { color: var(--text); }
+
+  .profit {
+    font-family: var(--font-mono);
+    font-weight: bold;
+    font-size: 14px;
+  }
+  .profit.high { color: var(--green); }
+  .profit.mid { color: var(--gold); }
+  .profit.low { color: var(--text-dim); }
+
+  .profit-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .profit-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    width: 80px;
+    overflow: hidden;
+  }
+  .profit-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+  .profit-bar-fill.high { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .profit-bar-fill.mid { background: var(--gold); box-shadow: 0 0 6px var(--gold); }
+  .profit-bar-fill.low { background: var(--text-dim); }
+
+  /* EXPAND ROW */
+  .expand-row td {
+    padding: 0;
+    background: rgba(0,120,200,0.04);
+  }
+  .expand-content {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: center;
+  }
+  .expand-base {
+    padding: 14px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .expand-base-role {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 3px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .expand-base-role.buy { color: var(--gold); }
+  .expand-base-role.sell { color: var(--green); }
+  .expand-base-title { font-size: 16px; font-weight: 700; color: var(--text-bright); margin-bottom: 4px; }
+  .expand-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); line-height: 1.7; }
+
+  .expand-arrow {
+    text-align: center;
+    font-size: 24px;
+    color: var(--accent);
+    opacity: 0.7;
+  }
+
+  .expand-profit-detail {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .expand-profit-item { display: flex; flex-direction: column; gap: 2px; }
+  .expand-profit-label { font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); letter-spacing: 2px; }
+  .expand-profit-val { font-family: var(--font-mono); font-size: 15px; font-weight: bold; }
+
+  /* EMPTY / LOADING STATES */
+  .state-box {
+    padding: 80px 20px;
+    text-align: center;
+    color: var(--text-dim);
+  }
+  .state-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.4;
+  }
+  .state-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .state-sub {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .spinner {
+    width: 40px; height: 40px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* PAGINATION */
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 16px;
+    padding: 12px 0;
+  }
+  .page-info {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .page-btns { display: flex; gap: 8px; }
+
+  /* REGION TAG */
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .tag-region { background: rgba(0,119,255,0.15); color: #5599ff; border: 1px solid rgba(0,119,255,0.3); }
+
+  /* COLUMN: arrow */
+  .route-arrow { color: var(--text-dim); font-size: 16px; }
+
+  @media (max-width: 900px) {
+    .controls { grid-template-columns: 1fr 1fr; }
+    .expand-content { grid-template-columns: 1fr; }
+    .expand-arrow { transform: rotate(90deg); }
+  }
+  @media (max-width: 600px) {
+    .controls { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="stars"></div>
+<div class="layout">
+
+  <header>
+    <div class="logo">
+      <div class="logo-title">FL <span>Trade</span> Routes</div>
+      <div class="logo-sub">DARKSTAT DATA FEED // FREELANCER SERVER NETWORK</div>
+    </div>
+    <div class="header-status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">OFFLINE</span>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="ctrl-group">
+      <div class="ctrl-label">Filter by Commodity</div>
+      <input type="text" id="commodityFilter" placeholder="e.g. Cardamine, MOX, Gold..." />
+    </div>
+    <div class="ctrl-group">
+      <div class="ctrl-label">Min Profit / unit (cr)</div>
+      <input type="number" id="minProfit" value="50" min="0" step="10" />
+    </div>
+    <div class="ctrl-group">
+      <div class="ctrl-label">Results</div>
+      <select id="limitSelect">
+        <option value="50">50</option>
+        <option value="100" selected>100</option>
+        <option value="250">250</option>
+        <option value="500">500</option>
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <div class="ctrl-label">&nbsp;</div>
+      <button class="btn primary" id="searchBtn" onclick="loadRoutes()">SCAN ROUTES</button>
+    </div>
+  </div>
+
+  <div class="stats-bar" id="statsBar" style="display:none">
+    <div class="stat-item">
+      <div class="stat-label">Routes Found</div>
+      <div class="stat-value" id="statCount">0</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Best Profit / unit</div>
+      <div class="stat-value" id="statBest">0 cr</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Avg Profit / unit</div>
+      <div class="stat-value" id="statAvg">0 cr</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Unique Commodities</div>
+      <div class="stat-value" id="statComm">0</div>
+    </div>
+  </div>
+
+  <div class="table-wrapper" id="tableWrapper">
+    <div class="state-box">
+      <div class="state-icon">🚀</div>
+      <div class="state-title">Ready to Scan</div>
+      <div class="state-sub">Press SCAN ROUTES to query the Darkstat feed</div>
+    </div>
+  </div>
+
+  <div class="pagination" id="pagination" style="display:none">
+    <div class="page-info" id="pageInfo"></div>
+    <div class="page-btns">
+      <button class="btn" id="prevBtn" onclick="changePage(-1)">← PREV</button>
+      <button class="btn" id="nextBtn" onclick="changePage(1)">NEXT →</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = '';  // same origin
+let allRoutes = [];
+let sortKey = 'profit_per_unit';
+let sortDir = -1;
+let page = 0;
+const PAGE_SIZE = 25;
+let expandedRow = null;
+
+function setStatus(state, text) {
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusText');
+  dot.className = 'status-dot ' + state;
+  label.textContent = text;
+}
+
+async function loadRoutes() {
+  const commodity = document.getElementById('commodityFilter').value.trim();
+  const minProfit = parseInt(document.getElementById('minProfit').value) || 0;
+  const limit = parseInt(document.getElementById('limitSelect').value) || 100;
+  const btn = document.getElementById('searchBtn');
+
+  btn.disabled = true;
+  btn.textContent = 'SCANNING...';
+  setStatus('loading', 'FETCHING DATA...');
+
+  document.getElementById('tableWrapper').innerHTML = `
+    <div class="state-box">
+      <div class="spinner"></div>
+      <div class="state-title">Scanning the sirius sector...</div>
+      <div class="state-sub">Querying Darkstat API</div>
+    </div>`;
+  document.getElementById('statsBar').style.display = 'none';
+  document.getElementById('pagination').style.display = 'none';
+
+  try {
+    let url = `${API}/api/routes?min_profit=${minProfit}&limit=${limit}`;
+    if (commodity) url += `&commodity=${encodeURIComponent(commodity)}`;
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    allRoutes = await res.json();
+
+    setStatus('online', 'CONNECTED');
+    page = 0;
+    sortKey = 'profit_per_unit';
+    sortDir = -1;
+    renderTable();
+    updateStats();
+  } catch(e) {
+    setStatus('error', 'ERROR');
+    document.getElementById('tableWrapper').innerHTML = `
+      <div class="state-box">
+        <div class="state-icon">⚠️</div>
+        <div class="state-title">Connection Failed</div>
+        <div class="state-sub">${e.message}</div>
+      </div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'SCAN ROUTES';
+  }
+}
+
+function updateStats() {
+  const bar = document.getElementById('statsBar');
+  if (!allRoutes.length) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+
+  document.getElementById('statCount').textContent = allRoutes.length;
+  document.getElementById('statBest').textContent = fmt(allRoutes[0]?.profit_per_unit || 0) + ' cr';
+  const avg = Math.round(allRoutes.reduce((s,r)=>s+r.profit_per_unit,0)/allRoutes.length);
+  document.getElementById('statAvg').textContent = fmt(avg) + ' cr';
+  const comms = new Set(allRoutes.map(r=>r.commodity_nickname)).size;
+  document.getElementById('statComm').textContent = comms;
+}
+
+function fmt(n) {
+  return Number(n).toLocaleString('en-US');
+}
+
+function profitClass(p, max) {
+  const ratio = p / max;
+  if (ratio > 0.6) return 'high';
+  if (ratio > 0.25) return 'mid';
+  return 'low';
+}
+
+function sortBy(key) {
+  if (sortKey === key) sortDir *= -1;
+  else { sortKey = key; sortDir = -1; }
+  page = 0;
+  renderTable();
+}
+
+function renderTable() {
+  if (!allRoutes.length) {
+    document.getElementById('tableWrapper').innerHTML = `
+      <div class="state-box">
+        <div class="state-icon">🔍</div>
+        <div class="state-title">No Routes Found</div>
+        <div class="state-sub">Try lowering the minimum profit threshold</div>
+      </div>`;
+    document.getElementById('pagination').style.display = 'none';
+    return;
+  }
+
+  const sorted = [...allRoutes].sort((a,b) => {
+    let va = a[sortKey], vb = b[sortKey];
+    if (typeof va === 'string') va = va.toLowerCase(), vb = vb.toLowerCase();
+    if (va < vb) return sortDir;
+    if (va > vb) return -sortDir;
+    return 0;
+  });
+
+  const maxProfit = Math.max(...sorted.map(r=>r.profit_per_unit));
+  const start = page * PAGE_SIZE;
+  const slice = sorted.slice(start, start + PAGE_SIZE);
+
+  const cols = [
+    { key: 'commodity_name', label: 'Commodity' },
+    { key: 'from_base', label: 'Buy At' },
+    { key: 'buy_price', label: 'Buy Price' },
+    { key: '', label: '' },
+    { key: 'to_base', label: 'Sell At' },
+    { key: 'sell_price', label: 'Sell Price' },
+    { key: 'profit_per_unit', label: 'Profit / Unit' },
+    { key: 'profit_per_volume', label: 'Profit / Vol' },
+  ];
+
+  let html = `<table>
+    <thead><tr>`;
+  for (const col of cols) {
+    if (!col.key) { html += `<th></th>`; continue; }
+    const sorted_class = sortKey === col.key ? ' sorted' : '';
+    const icon = sortKey === col.key ? (sortDir === -1 ? '↓' : '↑') : '↕';
+    html += `<th class="${sorted_class}" onclick="sortBy('${col.key}')">${col.label} <span class="sort-icon">${icon}</span></th>`;
+  }
+  html += `</tr></thead><tbody>`;
+
+  slice.forEach((r, i) => {
+    const pc = profitClass(r.profit_per_unit, maxProfit);
+    const barPct = Math.round((r.profit_per_unit / maxProfit) * 100);
+    const rowId = `row-${start+i}`;
+    const expandId = `expand-${start+i}`;
+
+    html += `<tr id="${rowId}" onclick="toggleExpand(${start+i}, '${rowId}', '${expandId}')">
+      <td>
+        <div class="commodity-name">${r.commodity_name}</div>
+        <div class="commodity-nick">${r.commodity_nickname}</div>
+      </td>
+      <td>
+        <div class="base-name">${r.from_base}</div>
+        <div class="base-meta">${r.from_system} // ${r.from_sector}</div>
+      </td>
+      <td><span class="price buy">${fmt(r.buy_price)} cr</span></td>
+      <td><span class="route-arrow">→</span></td>
+      <td>
+        <div class="base-name">${r.to_base}</div>
+        <div class="base-meta">${r.to_system} // ${r.to_sector}</div>
+      </td>
+      <td><span class="price sell">${fmt(r.sell_price)} cr</span></td>
+      <td>
+        <div class="profit-bar-wrap">
+          <span class="profit ${pc}">+${fmt(r.profit_per_unit)} cr</span>
+          <div class="profit-bar"><div class="profit-bar-fill ${pc}" style="width:${barPct}%"></div></div>
+        </div>
+      </td>
+      <td><span class="profit ${pc}" style="font-size:12px">+${fmt(r.profit_per_volume)}</span></td>
+    </tr>
+    <tr class="expand-row" id="${expandId}" style="display:none">
+      <td colspan="8">
+        <div class="expand-content">
+          <div class="expand-base">
+            <div class="expand-base-role buy">◆ BUY HERE</div>
+            <div class="expand-base-title">${r.from_base}</div>
+            <div class="expand-meta">
+              System: ${r.from_system}<br>
+              Region: ${r.from_region}<br>
+              Faction: ${r.from_faction}<br>
+              Sector: ${r.from_sector}<br>
+              Nickname: ${r.from_base_nickname}
+            </div>
+            <div class="expand-profit-detail">
+              <div class="expand-profit-item">
+                <div class="expand-profit-label">Buy Price</div>
+                <div class="expand-profit-val" style="color:var(--gold)">${fmt(r.buy_price)} cr</div>
+              </div>
+              <div class="expand-profit-item">
+                <div class="expand-profit-label">Volume</div>
+                <div class="expand-profit-val" style="color:var(--text)">${r.volume}</div>
+              </div>
+            </div>
+          </div>
+          <div class="expand-arrow">→</div>
+          <div class="expand-base">
+            <div class="expand-base-role sell">◆ SELL HERE</div>
+            <div class="expand-base-title">${r.to_base}</div>
+            <div class="expand-meta">
+              System: ${r.to_system}<br>
+              Region: ${r.to_region}<br>
+              Faction: ${r.to_faction}<br>
+              Sector: ${r.to_sector}<br>
+              Nickname: ${r.to_base_nickname}
+            </div>
+            <div class="expand-profit-detail">
+              <div class="expand-profit-item">
+                <div class="expand-profit-label">Sell Price</div>
+                <div class="expand-profit-val" style="color:var(--text)">${fmt(r.sell_price)} cr</div>
+              </div>
+              <div class="expand-profit-item">
+                <div class="expand-profit-label">Profit / Unit</div>
+                <div class="expand-profit-val" style="color:var(--green)">+${fmt(r.profit_per_unit)} cr</div>
+              </div>
+              <div class="expand-profit-item">
+                <div class="expand-profit-label">Profit / Vol</div>
+                <div class="expand-profit-val" style="color:var(--green)">+${fmt(r.profit_per_volume)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  });
+
+  html += `</tbody></table>`;
+  document.getElementById('tableWrapper').innerHTML = html;
+
+  // Pagination
+  const total = sorted.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const pag = document.getElementById('pagination');
+  pag.style.display = total > PAGE_SIZE ? 'flex' : 'none';
+  document.getElementById('pageInfo').textContent =
+    `Showing ${start+1}–${Math.min(start+PAGE_SIZE, total)} of ${fmt(total)} routes`;
+  document.getElementById('prevBtn').disabled = page === 0;
+  document.getElementById('nextBtn').disabled = page >= totalPages - 1;
+}
+
+function toggleExpand(idx, rowId, expandId) {
+  const expandRow = document.getElementById(expandId);
+  const row = document.getElementById(rowId);
+  if (!expandRow) return;
+
+  // Close previously expanded
+  if (expandedRow && expandedRow !== expandId) {
+    const prev = document.getElementById(expandedRow);
+    if (prev) prev.style.display = 'none';
+    const prevRowId = expandedRow.replace('expand-', 'row-');
+    const prevRow = document.getElementById(prevRowId);
+    if (prevRow) prevRow.classList.remove('expanded');
+  }
+
+  const isOpen = expandRow.style.display !== 'none';
+  expandRow.style.display = isOpen ? 'none' : 'table-row';
+  row.classList.toggle('expanded', !isOpen);
+  expandedRow = isOpen ? null : expandId;
+}
+
+function changePage(dir) {
+  const maxPage = Math.ceil(allRoutes.length / PAGE_SIZE) - 1;
+  page = Math.max(0, Math.min(maxPage, page + dir));
+  expandedRow = null;
+  renderTable();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Enter key triggers search
+document.getElementById('commodityFilter').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadRoutes();
+});
+document.getElementById('minProfit').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadRoutes();
+});
+</script>
+</body>
+</html>
